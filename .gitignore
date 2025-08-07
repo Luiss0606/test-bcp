@@ -157,3 +157,5 @@ logs/
 app_data/
 memory-bank/
 .cursorrules
+data/
+docs/

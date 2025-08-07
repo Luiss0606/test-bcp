@@ -1,25 +1,41 @@
 # Financial Restructuring Assistant
 
-AI-powered financial debt restructuring assistant for bank customers with multiple debts.
+AI-powered financial debt restructuring assistant for bank customers. Complete full-stack implementation with React frontend and FastAPI backend, using modern technologies like Bun, shadcn/ui, LangChain agents, and OpenAI GPT models with Spanish-language focus.
 
 ## Overview
 
-This application helps bank customers optimize their debt payment strategies by analyzing three scenarios:
+This is a modern full-stack application that helps bank customers optimize their debt payment strategies through an intuitive web interface. The system analyzes three scenarios:
 
 1. **Minimum Payment**: Analysis of paying only required minimums
 2. **Optimized Plan**: Debt avalanche strategy prioritizing high-interest debts  
 3. **Consolidation**: Evaluation of debt consolidation opportunities
 
-The system uses specialized LangChain agents running in parallel to generate natural language explanations for each scenario, with a master agent consolidating all reports into a comprehensive analysis.
+### Architecture
+- **Frontend**: React + TypeScript with Bun, shadcn/ui, and Tailwind CSS
+- **Backend**: FastAPI with SQLAlchemy, LangChain agents, and OpenAI integration
+- **Infrastructure**: Docker containers with nginx reverse proxy
 
 ## Features
 
+### Frontend (React + Bun)
+- 🎨 **Modern UI**: Built with shadcn/ui components and Tailwind CSS
+- 📱 **Responsive Design**: Mobile-first approach with beautiful gradients
+- 🇪🇸 **Spanish Language**: Fully localized client interface
+- ⚡ **Real-time Analysis**: Interactive forms with instant feedback
+- 💡 **Intuitive UX**: Direct, user-friendly debt analysis tool
+
+### Backend (FastAPI)
 - 🧮 **Multi-scenario debt analysis** with financial calculations
 - 🤖 **AI-powered agents** using OpenAI GPT models for natural language reports
 - ⚡ **Parallel execution** of analysis agents for better performance
 - 🏦 **Consolidation matching** with available bank offers
 - 📊 **Comprehensive reporting** with savings calculations and recommendations
-- 🐳 **Containerized** with UV package manager for fast, reproducible builds
+- 🔄 **Fallback System**: Works without OpenAI API using mathematical analysis
+
+### Infrastructure
+- 🐳 **Containerized**: Multi-stage Docker builds for both frontend and backend
+- 🌐 **Reverse Proxy**: nginx for production-ready deployment
+- 🚀 **Fast Package Management**: Bun for frontend, UV for backend
 
 ## Architecture
 
@@ -56,28 +72,52 @@ LOAD_SAMPLE_DATA=true
 DEBUG=true
 ```
 
-3. **Run with Docker Compose**:
+3. **Run the full stack**:
 ```bash
 docker-compose up --build
 ```
 
-The API will be available at http://localhost:8000
+**Access Points:**
+- **Frontend (Client Interface)**: http://localhost:3000
+- **Backend API**: http://localhost:8000
+- **Production Setup**: http://localhost (nginx reverse proxy)
 
 ### Local Development
 
-1. **Install UV** (if not already installed):
+#### Frontend Development (Bun)
+
 ```bash
+cd frontend
+
+# Install Bun (if not already installed)
+curl -fsSL https://bun.sh/install | bash
+
+# Install dependencies
+bun install
+
+# Run development server
+bun run dev
+
+# Build for production
+bun run build
+```
+
+#### Backend Development (UV)
+
+```bash
+cd backend
+
+# Install UV (if not already installed)
 curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
-2. **Setup project**:
-```bash
+# Setup project
 uv sync
-```
 
-3. **Run the application**:
-```bash
+# Run the application
 uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# Load sample data
+curl -X POST "http://localhost:8000/api/v1/load-data"
 ```
 
 ## API Usage
