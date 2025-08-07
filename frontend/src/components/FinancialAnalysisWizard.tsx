@@ -94,7 +94,61 @@ export function FinancialAnalysisWizard() {
       const response = await fetch(`http://localhost:8000/api/v1/customers/${clientId}/profile`);
       if (response.ok) {
         const data = await response.json();
-        setCustomerProfile(data);
+        // Adapt backend response to UI contract
+        const mapBackendProfileToUI = (payload: any): CustomerProfile => {
+          // New backend returns a flat array in payload.debts
+          let debts: any[] = [];
+          if (Array.isArray(payload?.debts)) {
+            debts = payload.debts.map((d: any) => ({
+              debt_id: d.debt_id ?? d.id,
+              debt_type: d.debt_type ?? (d.product_type ? 'loan' : 'card'),
+              balance: Number(d.balance ?? 0),
+              annual_rate_pct: Number(d.annual_rate_pct ?? d.rate ?? 0),
+              minimum_payment: Number(d.minimum_payment ?? 0),
+              days_past_due: Number(d.days_past_due ?? 0),
+              priority_score: typeof d.priority_score === 'number' ? d.priority_score : 0,
+            }));
+          } else {
+            // Backward compatibility: split objects {loans:[], cards:[]}
+            const loans = payload?.debts?.loans ?? [];
+            const cards = payload?.debts?.cards ?? [];
+            debts = [
+              ...loans.map((l: any) => ({
+                debt_id: l.id,
+                debt_type: 'loan',
+                balance: Number(l.balance ?? 0),
+                annual_rate_pct: Number(l.annual_rate_pct ?? l.rate ?? 0),
+                minimum_payment: Number(l.minimum_payment ?? 0),
+                days_past_due: Number(l.days_past_due ?? 0),
+                priority_score: typeof l.priority_score === 'number' ? l.priority_score : 0,
+              })),
+              ...cards.map((c: any) => ({
+                debt_id: c.id,
+                debt_type: 'card',
+                balance: Number(c.balance ?? 0),
+                annual_rate_pct: Number(c.annual_rate_pct ?? c.rate ?? 0),
+                minimum_payment: Number(c.minimum_payment ?? 0),
+                days_past_due: Number(c.days_past_due ?? 0),
+                priority_score: typeof c.priority_score === 'number' ? c.priority_score : 0,
+              })),
+            ];
+          }
+
+          return {
+            customer_profile: {
+              customer_id: payload?.customer_id ?? payload?.profile?.customer_id,
+              credit_score: payload?.profile?.credit_score,
+              monthly_income: payload?.profile?.monthly_income,
+              available_cashflow: payload?.profile?.available_cashflow,
+              total_debt_balance: payload?.profile?.total_debt_balance,
+              total_minimum_payment: payload?.profile?.total_minimum_payment,
+              ...payload?.profile,
+            },
+            debts,
+          } as CustomerProfile;
+        };
+
+        setCustomerProfile(mapBackendProfileToUI(data));
         // Auto-advance to profile step
         setTimeout(() => {
           setCurrentStep(2);
@@ -120,7 +174,7 @@ export function FinancialAnalysisWizard() {
 
   const handleAnalyze = async () => {
     if (!customerId) return;
-    
+
     setCurrentStep(3);
     setError('');
     setAnalysisProgress(0);
@@ -135,7 +189,7 @@ export function FinancialAnalysisWizard() {
         return prev + Math.random() * 3;
       });
     }, 500);
-    
+
     try {
       const response = await fetch(`http://localhost:8000/api/v1/customers/${customerId}/analyze`, {
         method: 'POST',
@@ -143,10 +197,25 @@ export function FinancialAnalysisWizard() {
           'Content-Type': 'application/json',
         }
       });
-      
+
       if (response.ok) {
         const result = await response.json();
-        setAnalysisResult(result);
+        // Normalize analysis result to expected UI contract
+        const normalized = {
+          customer_id: result.customer_id,
+          analysis_summary: result.summary_metrics ? {
+            total_balance: result.customer_profile?.total_debt_balance ?? 0,
+            available_cashflow: result.customer_profile?.available_cashflow ?? 0,
+            weighted_avg_rate: result.customer_profile?.average_interest_rate ?? 0,
+          } : undefined,
+          scenarios: result.scenarios,
+          ai_analysis: result.consolidated_report,
+          individual_analyses: result.individual_analyses,
+          consolidated_report: result.consolidated_report,
+          recommendations: result.recommendations,
+          summary_metrics: result.summary_metrics,
+        } as AnalysisResult;
+        setAnalysisResult(normalized);
         setAnalysisProgress(100);
         // Auto-advance to results
         setTimeout(() => {
@@ -189,45 +258,140 @@ export function FinancialAnalysisWizard() {
   const generatePDF = () => {
     if (!analysisResult) return;
 
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4'
-    });
+    const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    // Add title
-    pdf.setFontSize(20);
-    pdf.text('Informe de Reestructuración Financiera', 20, 20);
-    
-    // Add customer info
-    pdf.setFontSize(12);
-    pdf.text(`Cliente: ${customerId}`, 20, 35);
-    pdf.text(`Fecha: ${new Date().toLocaleDateString('es-MX')}`, 20, 42);
-    
-    // Add a line separator
-    pdf.line(20, 48, 190, 48);
-    
-    // Add consolidated report content
+    // Helpers
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const marginLeft = 15;
+    const marginRight = 15;
+    const contentWidth = pageWidth - marginLeft - marginRight;
+    let cursorY = 20;
+
+    const addHeader = () => {
+      // Header band
+      pdf.setFillColor(240, 248, 255); // aliceblue
+      pdf.rect(0, 0, pageWidth, 22, 'F');
+      pdf.setTextColor(33, 37, 41);
+      pdf.setFontSize(16);
+      pdf.text('Informe de Reestructuración Financiera', marginLeft, 14);
+      pdf.setFontSize(10);
+      pdf.setTextColor(100);
+      pdf.text(`Cliente: ${customerId}`, marginLeft, 20);
+      pdf.text(`Fecha: ${new Date().toLocaleDateString('es-MX')}`, pageWidth - marginRight - 45, 20);
+      cursorY = 28;
+    };
+
+    const sectionTitle = (title: string) => {
+      if (cursorY + 10 > pageHeight - 15) newPage();
+      pdf.setDrawColor(230);
+      pdf.line(marginLeft, cursorY, pageWidth - marginRight, cursorY);
+      cursorY += 6;
+      pdf.setTextColor(25, 118, 210); // primary blue
+      pdf.setFontSize(13);
+      pdf.text(title, marginLeft, cursorY);
+      pdf.setTextColor(33, 37, 41);
+      cursorY += 4;
+    };
+
+    const kvRow = (label: string, value: string, yPad = 6) => {
+      if (cursorY + yPad > pageHeight - 15) newPage();
+      pdf.setFontSize(10);
+      pdf.setTextColor(120);
+      pdf.text(label, marginLeft, cursorY);
+      pdf.setTextColor(33, 37, 41);
+      pdf.text(value, marginLeft + 60, cursorY);
+      cursorY += yPad;
+    };
+
+    const twoColBox = (left: { label: string; value: string }, right: { label: string; value: string }) => {
+      if (cursorY + 18 > pageHeight - 15) newPage();
+      const boxY = cursorY;
+      pdf.setDrawColor(230);
+      pdf.setFillColor(249, 250, 251); // light gray
+      pdf.roundedRect(marginLeft, boxY, contentWidth, 16, 2, 2, 'FD');
+      pdf.setFontSize(11);
+      pdf.setTextColor(120);
+      pdf.text(left.label, marginLeft + 6, boxY + 6);
+      pdf.setTextColor(33, 37, 41);
+      pdf.text(left.value, marginLeft + 6, boxY + 12);
+      pdf.setTextColor(120);
+      pdf.text(right.label, marginLeft + contentWidth / 2 + 6, boxY + 6);
+      pdf.setTextColor(33, 37, 41);
+      pdf.text(right.value, marginLeft + contentWidth / 2 + 6, boxY + 12);
+      cursorY += 20;
+    };
+
+    const multiText = (text: string) => {
+      const lines = pdf.splitTextToSize(text, contentWidth);
+      const lineHeight = 5;
+      lines.forEach((line: string) => {
+        if (cursorY + lineHeight > pageHeight - 15) newPage();
+        pdf.text(line, marginLeft, cursorY);
+        cursorY += lineHeight;
+      });
+    };
+
+    const newPage = () => {
+      pdf.addPage();
+      addHeader();
+    };
+
+    // Header
+    addHeader();
+
+    // Resumen ejecutivo
+    sectionTitle('Resumen Ejecutivo');
+    // summary_metrics disponible si backend lo envía; no usado directamente aquí
+    const prof = (analysisResult as any)?.analysis_summary;
+    twoColBox(
+      { label: 'Deuda Total', value: formatCurrency(prof?.total_balance ?? 0) },
+      { label: 'Flujo Disponible', value: formatCurrency(prof?.available_cashflow ?? 0) }
+    );
+    kvRow('Tasa promedio', `${Number(prof?.weighted_avg_rate ?? 0).toFixed(2)} %`);
+    cursorY += 2;
+
+    // Escenarios
+    sectionTitle('Comparativa de Escenarios');
+    const scenarios: any = analysisResult.scenarios || {};
+    const row = (name: string, data: any) => {
+      if (!data) return;
+      if (cursorY + 14 > pageHeight - 15) newPage();
+      pdf.setFillColor('#f5f5f5');
+      pdf.roundedRect(marginLeft, cursorY - 5, contentWidth, 12, 2, 2, 'F');
+      pdf.setFontSize(11);
+      pdf.text(name, marginLeft + 4, cursorY + 2);
+      pdf.setFontSize(10);
+      const colsX = [marginLeft + 60, marginLeft + 105, marginLeft + 150];
+      pdf.text(`Meses: ${data.total_payoff_months ?? 0}`, colsX[0], cursorY + 2);
+      pdf.text(`Interés: ${formatCurrency(data.total_interest ?? 0)}`, colsX[1], cursorY + 2);
+      pdf.text(`Ahorro: ${formatCurrency(data.savings_vs_minimum ?? 0)}`, colsX[2], cursorY + 2);
+      cursorY += 14;
+    };
+    row('Pago Mínimo', scenarios.minimum);
+    row('Plan Optimizado', scenarios.optimized);
+    row('Consolidación', scenarios.consolidation);
+
+    // Informe consolidado (IA)
+    sectionTitle('Informe Detallado');
     const report = analysisResult.consolidated_report || analysisResult.ai_analysis || 'No hay informe disponible';
-    
-    // Split text into lines that fit the page width
-    const lines = pdf.splitTextToSize(report, 170);
-    
-    let yPosition = 55;
-    const pageHeight = pdf.internal.pageSize.height;
-    const lineHeight = 5;
-    
-    // Add text with page breaks
-    lines.forEach((line: string) => {
-      if (yPosition + lineHeight > pageHeight - 20) {
-        pdf.addPage();
-        yPosition = 20;
-      }
-      pdf.text(line, 20, yPosition);
-      yPosition += lineHeight;
-    });
-    
-    // Save the PDF
+    multiText(report);
+
+    // Recomendaciones
+    if (analysisResult.recommendations && analysisResult.recommendations.length) {
+      sectionTitle('Recomendaciones Clave');
+      analysisResult.recommendations.forEach((r) => multiText(`• ${r}`));
+    }
+
+    // Footer with page number
+    const pageCount = (pdf as any).internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(9);
+      pdf.setTextColor(150);
+      pdf.text(`Página ${i} de ${pageCount}`, (pageWidth / 2) - 12, pageHeight - 8);
+    }
+
     pdf.save(`informe-financiero-${customerId}-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
@@ -272,8 +436,8 @@ export function FinancialAnalysisWizard() {
                       Encuentra tu ID en tu estado de cuenta o documentos del banco.
                     </p>
                   </div>
-                  <Button 
-                    type="submit" 
+                  <Button
+                    type="submit"
                     disabled={!customerId.trim() || isLoadingProfile}
                     className="w-full"
                     size="lg"
@@ -374,7 +538,7 @@ export function FinancialAnalysisWizard() {
                       </div>
                     </div>
                   </div>
-                  
+
                   <div className="space-y-4">
                     <h3 className="font-semibold text-lg mb-3">Resumen de tus Deudas</h3>
                     <div className="space-y-3">
@@ -393,7 +557,7 @@ export function FinancialAnalysisWizard() {
                     </div>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <h3 className="font-semibold text-lg">Detalle de tus Deudas</h3>
                   <div className="grid gap-3">
@@ -433,7 +597,7 @@ export function FinancialAnalysisWizard() {
                 </div>
 
                 <div className="flex justify-center pt-4">
-                  <Button 
+                  <Button
                     onClick={handleAnalyze}
                     size="lg"
                     className="px-8 py-3 text-lg font-semibold shadow-lg"
@@ -467,7 +631,7 @@ export function FinancialAnalysisWizard() {
             <Card className="max-w-2xl mx-auto shadow-xl">
               <CardContent className="p-8 space-y-6">
                 <Progress value={analysisProgress} showPercentage />
-                
+
                 <div className="space-y-4">
                   <div className="flex items-center space-x-3">
                     <div className={cn("w-3 h-3 rounded-full", analysisProgress > 20 ? "bg-green-500" : "bg-muted animate-pulse")} />
@@ -515,41 +679,9 @@ export function FinancialAnalysisWizard() {
               <h2 className="text-3xl font-bold text-foreground">
                 ¡Tu Plan Personalizado está Listo!
               </h2>
-              <p className="text-lg text-muted-foreground">
-                Aquí tienes tu análisis completo con recomendaciones específicas para tu situación
-              </p>
             </div>
 
             <div className="max-w-6xl mx-auto space-y-6">
-              {/* Summary Cards */}
-              {analysisResult.analysis_summary && (
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-                  <Card className="bg-primary/5 border-primary/20">
-                    <CardContent className="p-6 text-center">
-                      <h4 className="font-medium text-primary mb-2">Tu Deuda Total</h4>
-                      <p className="text-3xl font-bold text-primary">
-                        {formatCurrency(analysisResult.analysis_summary.total_balance)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-secondary/5 border-secondary/20">
-                    <CardContent className="p-6 text-center">
-                      <h4 className="font-medium text-secondary-foreground mb-2">Dinero Disponible</h4>
-                      <p className="text-3xl font-bold text-secondary-foreground">
-                        {formatCurrency(analysisResult.analysis_summary.available_cashflow)}
-                      </p>
-                    </CardContent>
-                  </Card>
-                  <Card className="bg-accent/5 border-accent/20">
-                    <CardContent className="p-6 text-center">
-                      <h4 className="font-medium text-accent-foreground mb-2">Tasa Promedio</h4>
-                      <p className="text-3xl font-bold text-accent-foreground">
-                        {analysisResult.analysis_summary.weighted_avg_rate?.toFixed(2)}%
-                      </p>
-                    </CardContent>
-                  </Card>
-                </div>
-              )}
 
               {/* Master Report Section with Download */}
               <Card className="shadow-xl">
@@ -564,7 +696,7 @@ export function FinancialAnalysisWizard() {
                         Análisis completo generado por el Director de Estrategia Financiera
                       </CardDescription>
                     </div>
-                    <Button 
+                    <Button
                       onClick={generatePDF}
                       className="bg-primary hover:bg-primary/90"
                     >
@@ -576,34 +708,34 @@ export function FinancialAnalysisWizard() {
                 <CardContent className="p-6">
                   <div className="bg-muted/30 rounded-lg p-6 max-h-[400px] overflow-y-auto">
                     <div className="prose prose-sm max-w-none text-sm leading-relaxed">
-                      <ReactMarkdown 
+                      <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          h1: ({children}) => <h1 className="text-xl font-bold mb-4 text-primary">{children}</h1>,
-                          h2: ({children}) => <h2 className="text-lg font-semibold mb-3 text-primary">{children}</h2>,
-                          h3: ({children}) => <h3 className="text-base font-semibold mb-2 text-primary">{children}</h3>,
-                          h4: ({children}) => <h4 className="text-sm font-semibold mb-2 text-primary">{children}</h4>,
-                          p: ({children}) => <p className="mb-3 text-sm leading-relaxed">{children}</p>,
-                          ul: ({children}) => <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>,
-                          ol: ({children}) => <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>,
-                          li: ({children}) => <li className="text-sm leading-relaxed">{children}</li>,
-                          strong: ({children}) => <strong className="font-semibold text-primary">{children}</strong>,
-                          em: ({children}) => <em className="italic">{children}</em>,
-                          code: ({children}) => <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
-                          pre: ({children}) => <pre className="bg-muted p-3 rounded-lg overflow-x-auto text-xs">{children}</pre>,
-                          blockquote: ({children}) => <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground">{children}</blockquote>,
-                          table: ({children}) => <table className="w-full border-collapse border border-muted text-xs">{children}</table>,
-                          th: ({children}) => <th className="border border-muted px-2 py-1 bg-muted font-semibold">{children}</th>,
-                          td: ({children}) => <td className="border border-muted px-2 py-1">{children}</td>,
+                          h1: ({ children }) => <h1 className="text-xl font-bold mb-4 text-primary">{children}</h1>,
+                          h2: ({ children }) => <h2 className="text-lg font-semibold mb-3 text-primary">{children}</h2>,
+                          h3: ({ children }) => <h3 className="text-base font-semibold mb-2 text-primary">{children}</h3>,
+                          h4: ({ children }) => <h4 className="text-sm font-semibold mb-2 text-primary">{children}</h4>,
+                          p: ({ children }) => <p className="mb-3 text-sm leading-relaxed">{children}</p>,
+                          ul: ({ children }) => <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>,
+                          ol: ({ children }) => <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>,
+                          li: ({ children }) => <li className="text-sm leading-relaxed">{children}</li>,
+                          strong: ({ children }) => <strong className="font-semibold text-primary">{children}</strong>,
+                          em: ({ children }) => <em className="italic">{children}</em>,
+                          code: ({ children }) => <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                          pre: ({ children }) => <pre className="bg-muted p-3 rounded-lg overflow-x-auto text-xs">{children}</pre>,
+                          blockquote: ({ children }) => <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground">{children}</blockquote>,
+                          table: ({ children }) => <table className="w-full border-collapse border border-muted text-xs">{children}</table>,
+                          th: ({ children }) => <th className="border border-muted px-2 py-1 bg-muted font-semibold">{children}</th>,
+                          td: ({ children }) => <td className="border border-muted px-2 py-1">{children}</td>,
                         }}
                       >
-                        {analysisResult.consolidated_report || 
-                         analysisResult.ai_analysis || 
-                         'Generando informe integral...'}
+                        {analysisResult.consolidated_report ||
+                          analysisResult.ai_analysis ||
+                          'Generando informe integral...'}
                       </ReactMarkdown>
                     </div>
                   </div>
-                  
+
                   {/* Recommendations Section */}
                   {analysisResult.recommendations && analysisResult.recommendations.length > 0 && (
                     <div className="mt-6 p-4 bg-primary/5 rounded-lg border border-primary/20">
@@ -642,7 +774,7 @@ export function FinancialAnalysisWizard() {
                         // Find the best scenario based on savings_vs_minimum
                         let bestScenario = '';
                         let maxSavings = 0;
-                        
+
                         Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
                           const savings = data.savings_vs_minimum || 0;
                           if (savings > maxSavings) {
@@ -654,30 +786,30 @@ export function FinancialAnalysisWizard() {
                         return Object.entries(analysisResult.scenarios).map(([scenario, data]: [string, any]) => {
                           const isRecommended = scenario === bestScenario && maxSavings > 0;
                           const savings = data.savings_vs_minimum || 0;
-                          
+
                           const scenarioConfig = {
-                            minimum: { 
-                              name: 'Pago Mínimo', 
+                            minimum: {
+                              name: 'Pago Mínimo',
                               description: 'Pagando solo el mínimo requerido',
                               color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-orange-200 bg-orange-50',
                               textColor: isRecommended ? 'text-emerald-700' : 'text-orange-700'
                             },
-                            optimized: { 
-                              name: 'Plan Optimizado', 
+                            optimized: {
+                              name: 'Plan Optimizado',
                               description: 'Estrategia de pago acelerado',
                               color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-blue-200 bg-blue-50',
                               textColor: isRecommended ? 'text-emerald-700' : 'text-blue-700'
                             },
-                            consolidation: { 
-                              name: 'Consolidación', 
+                            consolidation: {
+                              name: 'Consolidación',
                               description: 'Unificando todas tus deudas',
                               color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-green-200 bg-green-50',
                               textColor: isRecommended ? 'text-emerald-700' : 'text-green-700'
                             }
                           };
-                          
+
                           const config = scenarioConfig[scenario as keyof typeof scenarioConfig];
-                          
+
                           return (
                             <Card key={scenario} className={cn(
                               "border-2 relative transition-all duration-300 group cursor-pointer hover:shadow-lg",
@@ -692,7 +824,7 @@ export function FinancialAnalysisWizard() {
                                   </div>
                                 </div>
                               )}
-                              
+
                               <CardHeader className="pb-3">
                                 <CardTitle className={cn("text-lg flex items-center justify-between", config.textColor)}>
                                   {config.name}
@@ -706,7 +838,7 @@ export function FinancialAnalysisWizard() {
                                   {config.description}
                                 </CardDescription>
                               </CardHeader>
-                              
+
                               <CardContent className="space-y-3">
                                 <div className="space-y-2">
                                   <div className="flex justify-between">
@@ -730,7 +862,7 @@ export function FinancialAnalysisWizard() {
                                     <span className="font-bold text-lg">{formatCurrency(data.total_payments)}</span>
                                   </div>
                                 </div>
-                                
+
                                 {isRecommended && (
                                   <div className="mt-4 p-3 bg-emerald-100 rounded-lg border border-emerald-200">
                                     <div className="flex items-center space-x-2">
@@ -766,12 +898,12 @@ export function FinancialAnalysisWizard() {
                         });
                       })()}
                     </div>
-                    
+
                     {(() => {
                       // Show recommendation summary
                       let bestScenario = '';
                       let maxSavings = 0;
-                      
+
                       Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
                         const savings = data.savings_vs_minimum || 0;
                         if (savings > maxSavings) {
@@ -786,7 +918,7 @@ export function FinancialAnalysisWizard() {
                           optimized: 'Plan Optimizado',
                           consolidation: 'Consolidación'
                         };
-                        
+
                         return (
                           <div className="mt-8 p-6 bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-50 rounded-xl border-2 border-emerald-200 shadow-lg">
                             <div className="flex items-start space-x-4">
@@ -835,7 +967,7 @@ export function FinancialAnalysisWizard() {
               )}
 
               <div className="flex justify-center pt-6">
-                <Button 
+                <Button
                   onClick={() => goToStep(1)}
                   variant="outline"
                   size="lg"
@@ -912,7 +1044,7 @@ export function FinancialAnalysisWizard() {
               // Determine if this strategy is recommended
               let bestScenario = '';
               let maxSavings = 0;
-              
+
               Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
                 const savings = data.savings_vs_minimum || 0;
                 if (savings > maxSavings) {
@@ -920,7 +1052,7 @@ export function FinancialAnalysisWizard() {
                   bestScenario = scenario;
                 }
               });
-              
+
               return selectedStrategy === bestScenario && maxSavings > 0;
             })()}
           />

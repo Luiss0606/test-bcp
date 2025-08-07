@@ -1,7 +1,7 @@
 """Enhanced consolidation service with intelligent eligibility analysis."""
 
 from typing import Dict, Any, List, Tuple
-from sqlalchemy.orm import Session
+from app.core.database import get_supabase
 from app.models import BankOffer
 from app.agents.eligibility_agent import EligibilityAgent, EligibilityResult
 from app.services.debt_calculator import DebtCalculator, ScenarioResult
@@ -10,9 +10,9 @@ from app.services.debt_calculator import DebtCalculator, ScenarioResult
 class EnhancedConsolidationService:
     """Enhanced consolidation service with LLM-powered eligibility analysis."""
     
-    def __init__(self, db: Session):
-        self.db = db
-        self.debt_calculator = DebtCalculator(db)
+    def __init__(self):
+        self.supabase = get_supabase()
+        self.debt_calculator = DebtCalculator()
         self.eligibility_agent = EligibilityAgent()
     
     async def calculate_intelligent_consolidation_scenario(
@@ -30,9 +30,10 @@ class EnhancedConsolidationService:
         debts = self.debt_calculator.get_customer_debts(customer_id)
         customer_profile = self._get_enhanced_customer_profile(customer_id)
         
-        # Get all available offers
-        offers = self.db.query(BankOffer).all()
-        offer_dicts = [self._offer_to_dict(offer) for offer in offers]
+        # Get all available offers from Supabase
+        offers_response = self.supabase.table('bank_offers').select('*').execute()
+        offers = [BankOffer.from_dict(offer) for offer in offers_response.data] if offers_response.data else []
+        offer_dicts = [offer.to_dict() for offer in offers]
         
         # Perform intelligent eligibility analysis
         eligibility_results = await self.eligibility_agent.batch_evaluate_offers(
@@ -78,7 +79,8 @@ class EnhancedConsolidationService:
     ) -> Dict[str, Any]:
         """Get detailed analysis for a specific offer."""
         
-        offer = self.db.query(BankOffer).filter(BankOffer.id == offer_id).first()
+        offer_response = self.supabase.table('bank_offers').select('*').eq('id', offer_id).single().execute()
+        offer = BankOffer.from_dict(offer_response.data) if offer_response.data else None
         if not offer:
             return {"error": f"Oferta {offer_id} no encontrada"}
         
@@ -114,7 +116,7 @@ class EnhancedConsolidationService:
         from app.services.analysis_service import FinancialAnalysisService
         
         # Create temporary instance to access the method
-        temp_service = FinancialAnalysisService(self.db)
+        temp_service = FinancialAnalysisService()
         return temp_service._get_customer_info(customer_id) or {}
     
     def _offer_to_dict(self, offer: BankOffer) -> Dict[str, Any]:

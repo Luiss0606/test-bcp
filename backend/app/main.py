@@ -6,7 +6,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from app.api.endpoints import router
-from app.core.database import create_tables
 from app.services.data_loader import load_sample_data
 
 
@@ -15,10 +14,7 @@ async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     # Startup
     print("🚀 Starting Financial Restructuring Assistant...")
-    
-    # Create database tables
-    create_tables()
-    print("📊 Database tables created")
+    print("📊 Using Supabase database")
     
     # Load sample data if in development
     if os.getenv("LOAD_SAMPLE_DATA", "false").lower() == "true":

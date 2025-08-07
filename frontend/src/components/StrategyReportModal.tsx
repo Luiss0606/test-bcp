@@ -107,8 +107,11 @@ export function StrategyReportModal({
       
       if (response.ok) {
         const data = await response.json();
-        // The detailed analysis should be in the response
-        setDetailedReport(data.detailed_analysis || generateFallbackReport());
+        // The detailed analysis may come as part of scenario or a field; fallback to generic
+        const scenario = data?.scenario ?? data;
+        setDetailedReport(
+          scenario?.detailed_analysis || scenario?.analysis || generateFallbackReport()
+        );
       } else {
         setError('No se pudo cargar el informe detallado');
         setDetailedReport(generateFallbackReport());

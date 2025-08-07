@@ -2,8 +2,11 @@
 
 from typing import Dict, Any, Optional, List
 from datetime import datetime
-from sqlalchemy.orm import Session
-from app.models import Customer, CustomerCashflow, CreditScore
+from app.core.database import get_supabase
+from app.models import (
+    Customer, CustomerCashflow, CreditScore, Loan, Card,
+    PaymentHistory, BankOffer
+)
 from app.services.debt_calculator import DebtCalculator
 from app.agents import AgentOrchestrator, MasterConsolidatorAgent
 # Imports removed: CustomerAnalysis, ScenarioResult (not used)
@@ -12,9 +15,9 @@ from app.agents import AgentOrchestrator, MasterConsolidatorAgent
 class FinancialAnalysisService:
     """Main service for comprehensive financial debt analysis."""
     
-    def __init__(self, db: Session):
-        self.db = db
-        self.debt_calculator = DebtCalculator(db)
+    def __init__(self):
+        self.supabase = get_supabase()
+        self.debt_calculator = DebtCalculator()
         self.agent_orchestrator = AgentOrchestrator()
         self.master_agent = MasterConsolidatorAgent()
     
@@ -94,19 +97,11 @@ class FinancialAnalysisService:
                 # Fallback to basic consolidation
                 return self.debt_calculator.calculate_consolidation_scenario(customer_id)
             
-            # Get all available offers
-            offers = self.db.query(BankOffer).all()
-            offer_dicts = [
-                {
-                    "offer_id": offer.id,
-                    "product_types_eligible": offer.product_types_eligible,
-                    "max_consolidated_balance": offer.max_consolidated_balance,
-                    "new_rate_pct": offer.new_rate_pct,
-                    "max_term_months": offer.max_term_months,
-                    "conditions": offer.conditions
-                }
-                for offer in offers
-            ]
+            # Get all available offers from Supabase
+            offers_response = self.supabase.table('bank_offers').select('*').execute()
+            offers = [BankOffer.from_dict(offer) for offer in offers_response.data] if offers_response.data else []
+            
+            offer_dicts = [offer.to_dict() for offer in offers]
             
             # Perform intelligent eligibility analysis
             eligibility_agent = EligibilityAgent()
@@ -212,19 +207,21 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
         """Get comprehensive customer information."""
         
         # Get customer record
-        customer = self.db.query(Customer).filter(Customer.id == customer_id).first()
-        if not customer:
+        customer_response = self.supabase.table('customers').select('*').eq('id', customer_id).single().execute()
+        if not customer_response.data:
             return None
         
+        customer_data = customer_response.data
+        
         # Get cashflow data
-        cashflow = self.db.query(CustomerCashflow).filter(
-            CustomerCashflow.customer_id == customer_id
-        ).first()
+        cashflow_response = self.supabase.table('customer_cashflow').select('*').eq('customer_id', customer_id).single().execute()
+        cashflow = CustomerCashflow.from_dict(cashflow_response.data) if cashflow_response.data else None
         
         # Get latest credit score
-        latest_score = self.db.query(CreditScore).filter(
-            CreditScore.customer_id == customer_id
-        ).order_by(CreditScore.date.desc()).first()
+        credit_response = self.supabase.table('credit_scores').select('*').eq(
+            'customer_id', customer_id
+        ).order('date', desc=True).limit(1).execute()
+        latest_score = credit_response.data[0] if credit_response.data else None
         
         # Get debts summary
         debts = self.debt_calculator.get_customer_debts(customer_id)
@@ -234,13 +231,13 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
         payment_consistency = "N/A"
         
         if debts:
-            from app.models.payment import PaymentHistory
-            recent_payments = self.db.query(PaymentHistory).filter(
-                PaymentHistory.customer_id == customer_id
-            ).order_by(PaymentHistory.date.desc()).limit(6).all()
+            payment_response = self.supabase.table('payment_history').select('*').eq(
+                'customer_id', customer_id
+            ).order('date', desc=True).limit(6).execute()
+            recent_payments = payment_response.data if payment_response.data else []
             
             if recent_payments:
-                total_recent_payments = sum(p.amount for p in recent_payments)
+                total_recent_payments = sum(p['amount'] for p in recent_payments)
                 # Simple consistency check - if they've made regular payments
                 payment_consistency = "Buena" if len(recent_payments) >= 2 else "Limitada"
         
@@ -251,8 +248,8 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
             "available_cashflow": cashflow.available_cashflow if cashflow else 0,
             "conservative_cashflow": cashflow.conservative_cashflow if cashflow else 0,
             "income_variability": cashflow.income_variability_pct if cashflow else 0,
-            "credit_score": latest_score.credit_score if latest_score else None,
-            "credit_score_date": latest_score.date.strftime("%Y-%m-%d") if latest_score and latest_score.date else "N/A",
+            "credit_score": latest_score['credit_score'] if latest_score else None,
+            "credit_score_date": latest_score['date'] if latest_score else "N/A",
             "total_debts": len(debts),
             "total_debt_balance": sum(debt.balance for debt in debts),
             "total_minimum_payment": sum(debt.minimum_payment for debt in debts),
@@ -274,13 +271,16 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
         debt_details = []
         
         # Get loans with full details
-        loans = self.db.query(Loan).filter(Loan.customer_id == customer_id).all()
+        loans_response = self.supabase.table('loans').select('*').eq('customer_id', customer_id).execute()
+        loans = [Loan.from_dict(loan) for loan in loans_response.data] if loans_response.data else []
+        
         for loan in loans:
             # Get recent payment history
-            recent_payments = self.db.query(PaymentHistory).filter(
-                PaymentHistory.product_id == loan.id,
-                PaymentHistory.customer_id == customer_id
-            ).order_by(PaymentHistory.date.desc()).limit(3).all()
+            payment_response = self.supabase.table('payment_history').select('*').match({
+                'product_id': loan.id,
+                'customer_id': customer_id
+            }).order('date', desc=True).limit(3).execute()
+            recent_payments = payment_response.data if payment_response.data else []
             
             debt_detail = {
                 "debt_id": loan.id,
@@ -295,21 +295,24 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
                 "priority_score": loan.priority_score,
                 "recent_payments": [
                     {
-                        "date": payment.date.strftime("%Y-%m-%d") if payment.date else "N/A",
-                        "amount": payment.amount
+                        "date": payment['date'],
+                        "amount": payment['amount']
                     } for payment in recent_payments
                 ]
             }
             debt_details.append(debt_detail)
         
         # Get cards with full details
-        cards = self.db.query(Card).filter(Card.customer_id == customer_id).all()
+        cards_response = self.supabase.table('cards').select('*').eq('customer_id', customer_id).execute()
+        cards = [Card.from_dict(card) for card in cards_response.data] if cards_response.data else []
+        
         for card in cards:
             # Get recent payment history
-            recent_payments = self.db.query(PaymentHistory).filter(
-                PaymentHistory.product_id == card.id,
-                PaymentHistory.customer_id == customer_id
-            ).order_by(PaymentHistory.date.desc()).limit(3).all()
+            payment_response = self.supabase.table('payment_history').select('*').match({
+                'product_id': card.id,
+                'customer_id': customer_id
+            }).order('date', desc=True).limit(3).execute()
+            recent_payments = payment_response.data if payment_response.data else []
             
             debt_detail = {
                 "debt_id": card.id,
@@ -323,8 +326,8 @@ Para explorar otras opciones de manejo de deudas, consulte los escenarios de pag
                 "priority_score": card.priority_score,
                 "recent_payments": [
                     {
-                        "date": payment.date.strftime("%Y-%m-%d") if payment.date else "N/A",
-                        "amount": payment.amount
+                        "date": payment['date'],
+                        "amount": payment['amount']
                     } for payment in recent_payments
                 ]
             }

@@ -1,28 +1,22 @@
-"""Debt-related models (loans and cards)."""
+"""Debt-related models (loans and cards) using dataclasses."""
 
-from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey
-from sqlalchemy.orm import relationship
+from dataclasses import dataclass
 from datetime import datetime
-from app.core.database import Base
+from typing import Optional
 
 
-class Loan(Base):
+@dataclass
+class Loan:
     """Personal loans and microloans."""
-    
-    __tablename__ = "loans"
-    
-    id = Column(String, primary_key=True, index=True)
-    customer_id = Column(String, ForeignKey("customers.id"), index=True)
-    product_type = Column(String)  # personal, micro
-    principal = Column(Float)
-    annual_rate_pct = Column(Float)
-    remaining_term_months = Column(Integer)
-    collateral = Column(Boolean, default=False)
-    days_past_due = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationship
-    customer = relationship("Customer", back_populates="loans")
+    id: str
+    customer_id: Optional[str] = None
+    product_type: Optional[str] = None  # personal, micro
+    principal: float = 0.0
+    annual_rate_pct: float = 0.0
+    remaining_term_months: int = 0
+    collateral: bool = False
+    days_past_due: int = 0
+    created_at: Optional[datetime] = None
     
     @property
     def monthly_rate(self) -> float:
@@ -63,24 +57,48 @@ class Loan(Base):
             score += 5
         
         return score
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Loan':
+        """Create Loan instance from dictionary."""
+        return cls(
+            id=data.get('id'),
+            customer_id=data.get('customer_id'),
+            product_type=data.get('product_type'),
+            principal=float(data.get('principal', 0)),
+            annual_rate_pct=float(data.get('annual_rate_pct', 0)),
+            remaining_term_months=int(data.get('remaining_term_months', 0)),
+            collateral=bool(data.get('collateral', False)),
+            days_past_due=int(data.get('days_past_due', 0)),
+            created_at=data.get('created_at')
+        )
+    
+    def to_dict(self) -> dict:
+        """Convert Loan to dictionary."""
+        return {
+            'id': self.id,
+            'customer_id': self.customer_id,
+            'product_type': self.product_type,
+            'principal': self.principal,
+            'annual_rate_pct': self.annual_rate_pct,
+            'remaining_term_months': self.remaining_term_months,
+            'collateral': self.collateral,
+            'days_past_due': self.days_past_due,
+            'created_at': self.created_at
+        }
 
 
-class Card(Base):
+@dataclass
+class Card:
     """Credit cards."""
-    
-    __tablename__ = "cards"
-    
-    id = Column(String, primary_key=True, index=True)
-    customer_id = Column(String, ForeignKey("customers.id"), index=True)
-    balance = Column(Float)
-    annual_rate_pct = Column(Float)
-    min_payment_pct = Column(Float)  # Minimum payment as percentage of balance
-    payment_due_day = Column(Integer)
-    days_past_due = Column(Integer, default=0)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationship
-    customer = relationship("Customer", back_populates="cards")
+    id: str
+    customer_id: Optional[str] = None
+    balance: float = 0.0
+    annual_rate_pct: float = 0.0
+    min_payment_pct: float = 0.0  # Minimum payment as percentage of balance
+    payment_due_day: int = 0
+    days_past_due: int = 0
+    created_at: Optional[datetime] = None
     
     @property
     def monthly_rate(self) -> float:
@@ -124,9 +142,34 @@ class Card(Base):
             return int(self.balance / monthly_payment)
         
         # Formula for credit card payoff time
-        months = -(1/12) * (1/monthly_rate) * \
-                 (1 + (1/monthly_rate) * 
-                  (monthly_payment / self.balance - monthly_rate)) * \
-                 (1 - (monthly_payment / (monthly_payment - self.balance * monthly_rate)))
+        import math
+        months = -(math.log(1 - (self.balance * monthly_rate) / monthly_payment)) / math.log(1 + monthly_rate)
         
         return max(1, int(months) + 1)
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'Card':
+        """Create Card instance from dictionary."""
+        return cls(
+            id=data.get('id'),
+            customer_id=data.get('customer_id'),
+            balance=float(data.get('balance', 0)),
+            annual_rate_pct=float(data.get('annual_rate_pct', 0)),
+            min_payment_pct=float(data.get('min_payment_pct', 0)),
+            payment_due_day=int(data.get('payment_due_day', 0)),
+            days_past_due=int(data.get('days_past_due', 0)),
+            created_at=data.get('created_at')
+        )
+    
+    def to_dict(self) -> dict:
+        """Convert Card to dictionary."""
+        return {
+            'id': self.id,
+            'customer_id': self.customer_id,
+            'balance': self.balance,
+            'annual_rate_pct': self.annual_rate_pct,
+            'min_payment_pct': self.min_payment_pct,
+            'payment_due_day': self.payment_due_day,
+            'days_past_due': self.days_past_due,
+            'created_at': self.created_at
+        }

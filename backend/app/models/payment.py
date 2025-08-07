@@ -1,44 +1,62 @@
-"""Payment history and bank offers models."""
+"""Payment history and bank offers models using dataclasses."""
 
-from sqlalchemy import Column, String, Float, Integer, DateTime, Text, JSON, ForeignKey
-from sqlalchemy.orm import relationship
+from dataclasses import dataclass
 from datetime import datetime
-from app.core.database import Base
+from typing import Optional, List
 
 
-class PaymentHistory(Base):
+@dataclass
+class PaymentHistory:
     """Customer payment history."""
+    id: Optional[int] = None
+    product_id: Optional[str] = None
+    product_type: Optional[str] = None  # loan, card
+    customer_id: Optional[str] = None
+    date: Optional[datetime] = None
+    amount: float = 0.0
+    created_at: Optional[datetime] = None
     
-    __tablename__ = "payment_history"
+    @classmethod
+    def from_dict(cls, data: dict) -> 'PaymentHistory':
+        """Create PaymentHistory instance from dictionary."""
+        return cls(
+            id=data.get('id'),
+            product_id=data.get('product_id'),
+            product_type=data.get('product_type'),
+            customer_id=data.get('customer_id'),
+            date=data.get('date'),
+            amount=float(data.get('amount', 0)),
+            created_at=data.get('created_at')
+        )
     
-    id = Column(Integer, primary_key=True, index=True)
-    product_id = Column(String, index=True)
-    product_type = Column(String)  # loan, card
-    customer_id = Column(String, ForeignKey("customers.id"), index=True)
-    date = Column(DateTime)
-    amount = Column(Float)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # Relationship
-    customer = relationship("Customer", back_populates="payment_history")
+    def to_dict(self) -> dict:
+        """Convert PaymentHistory to dictionary."""
+        return {
+            'id': self.id,
+            'product_id': self.product_id,
+            'product_type': self.product_type,
+            'customer_id': self.customer_id,
+            'date': self.date,
+            'amount': self.amount,
+            'created_at': self.created_at
+        }
 
 
-class BankOffer(Base):
+@dataclass
+class BankOffer:
     """Bank consolidation offers."""
+    id: str
+    product_types_eligible: List[str] = None  # List of eligible product types
+    max_consolidated_balance: float = 0.0
+    new_rate_pct: float = 0.0
+    max_term_months: int = 0
+    conditions: Optional[str] = None
+    created_at: Optional[datetime] = None
     
-    __tablename__ = "bank_offers"
-    
-    id = Column(String, primary_key=True, index=True)
-    product_types_eligible = Column(JSON)  # List of eligible product types
-    max_consolidated_balance = Column(Float)
-    new_rate_pct = Column(Float)
-    max_term_months = Column(Integer)
-    conditions = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    
-    # MÉTODO ELIMINADO: is_eligible_for_customer
-    # Ahora se usa EligibilityAgent para análisis inteligente de elegibilidad
-    # El método anterior tenía limitaciones para condiciones complejas
+    def __post_init__(self):
+        """Initialize default values."""
+        if self.product_types_eligible is None:
+            self.product_types_eligible = []
     
     def calculate_new_payment(self, consolidated_balance: float) -> float:
         """Calculate new monthly payment after consolidation."""
@@ -53,3 +71,28 @@ class BankOffer(Base):
         payment = consolidated_balance * (monthly_rate * (1 + monthly_rate) ** self.max_term_months) / \
                   ((1 + monthly_rate) ** self.max_term_months - 1)
         return payment
+    
+    @classmethod
+    def from_dict(cls, data: dict) -> 'BankOffer':
+        """Create BankOffer instance from dictionary."""
+        return cls(
+            id=data.get('id'),
+            product_types_eligible=data.get('product_types_eligible', []),
+            max_consolidated_balance=float(data.get('max_consolidated_balance', 0)),
+            new_rate_pct=float(data.get('new_rate_pct', 0)),
+            max_term_months=int(data.get('max_term_months', 0)),
+            conditions=data.get('conditions'),
+            created_at=data.get('created_at')
+        )
+    
+    def to_dict(self) -> dict:
+        """Convert BankOffer to dictionary."""
+        return {
+            'id': self.id,
+            'product_types_eligible': self.product_types_eligible,
+            'max_consolidated_balance': self.max_consolidated_balance,
+            'new_rate_pct': self.new_rate_pct,
+            'max_term_months': self.max_term_months,
+            'conditions': self.conditions,
+            'created_at': self.created_at
+        }

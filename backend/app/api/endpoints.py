@@ -1,16 +1,11 @@
 """FastAPI endpoints for financial debt analysis."""
 
 from typing import Dict, Any, List
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from sqlalchemy.orm import Session
-from app.core.database import get_db
-from app.services.analysis_service import (
-    FinancialAnalysisService,
-    ReportGenerationService,
-)
+from fastapi import APIRouter, HTTPException, BackgroundTasks
+from app.core.database import get_supabase
+from app.services.analysis_service import FinancialAnalysisService
 from app.services.data_loader import DataLoader
-from app.schemas.debt import CustomerAnalysis
-from app.models import Customer
+from app.models import Customer, Loan, Card, BankOffer
 from datetime import datetime
 
 router = APIRouter()
@@ -23,13 +18,11 @@ async def health_check():
 
 
 @router.post("/load-data")
-async def load_sample_data(
-    background_tasks: BackgroundTasks, db: Session = Depends(get_db)
-):
+async def load_sample_data(background_tasks: BackgroundTasks):
     """Load sample data from CSV and JSON files."""
     try:
         loader = DataLoader()
-        results = loader.load_all_data(db)
+        results = loader.load_all_data()
 
         return {"message": "Data loaded successfully", "results": results}
     except Exception as e:
@@ -37,304 +30,289 @@ async def load_sample_data(
 
 
 @router.get("/customers")
-async def get_customers(db: Session = Depends(get_db)):
+async def get_customers():
     """Get list of all customers."""
     try:
-        customers = db.query(Customer).all()
+        supabase = get_supabase()
+        response = supabase.table('customers').select('*').execute()
+        customers = response.data if response.data else []
+        
         customer_list = [
             {
-                "customer_id": customer.id,
-                "created_at": customer.created_at.isoformat()
-                if customer.created_at
-                else None,
+                "customer_id": customer['id'],
+                "created_at": customer.get('created_at')
             }
             for customer in customers
         ]
-
-        return {"customers": customer_list, "total_count": len(customer_list)}
+        
+        return {
+            "customers": customer_list,
+            "total": len(customer_list)
+        }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching customers: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error fetching customers: {str(e)}")
 
 
 @router.get("/customers/{customer_id}/profile")
-async def get_customer_profile(customer_id: str, db: Session = Depends(get_db)):
+async def get_customer_profile(customer_id: str):
     """Get detailed customer profile including debts and financial info."""
     try:
-        analysis_service = FinancialAnalysisService(db)
-        customer_info = analysis_service._get_customer_info(customer_id)
-
-        if not customer_info:
-            raise HTTPException(
-                status_code=404, detail=f"Customer {customer_id} not found"
-            )
-
-        # Get debt details
-        debts = analysis_service.debt_calculator.get_customer_debts(customer_id)
-        debt_details = [
-            {
-                "debt_id": debt.id,
-                "debt_type": debt.debt_type,
-                "balance": debt.balance,
-                "annual_rate_pct": debt.annual_rate_pct,
-                "minimum_payment": debt.minimum_payment,
-                "days_past_due": debt.days_past_due,
-                "priority_score": debt.priority_score,
-            }
-            for debt in debts
-        ]
-
-        return {"customer_profile": customer_info, "debts": debt_details}
+        supabase = get_supabase()
+        service = FinancialAnalysisService()
+        
+        # Get customer
+        customer_response = supabase.table('customers').select('*').eq('id', customer_id).single().execute()
+        if not customer_response.data:
+            raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
+        
+        customer_data = customer_response.data
+        
+        # Get customer info with all relations
+        customer_info = service._get_customer_info(customer_id)
+        debt_details = service._get_debt_details(customer_id)
+        
+        return {
+            "customer_id": customer_id,
+            "profile": customer_info,
+            "debts": debt_details,
+            "timestamp": datetime.utcnow().isoformat()
+        }
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error fetching customer profile: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error fetching customer profile: {str(e)}")
 
 
 @router.post("/customers/{customer_id}/analyze")
-async def analyze_customer_debt(customer_id: str, db: Session = Depends(get_db)):
+async def analyze_customer_debt(customer_id: str):
     """Perform comprehensive debt analysis for a customer."""
     try:
-        analysis_service = FinancialAnalysisService(db)
-        analysis_result = await analysis_service.analyze_customer_debt(customer_id)
-
-        if "error" in analysis_result:
-            raise HTTPException(status_code=404, detail=analysis_result["error"])
-
-        return analysis_result
+        service = FinancialAnalysisService()
+        analysis = await service.analyze_customer_debt(customer_id)
+        
+        if "error" in analysis:
+            raise HTTPException(status_code=404, detail=analysis["error"])
+        
+        return analysis
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error analyzing customer debt: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error performing analysis: {str(e)}")
 
 
 @router.post("/customers/{customer_id}/report")
-async def generate_client_report(customer_id: str, db: Session = Depends(get_db)):
+async def generate_client_report(customer_id: str):
     """Generate a formatted report for client presentation."""
     try:
-        analysis_service = FinancialAnalysisService(db)
-        report_service = ReportGenerationService()
-
-        # Perform analysis
-        analysis_result = await analysis_service.analyze_customer_debt(customer_id)
-
-        if "error" in analysis_result:
-            raise HTTPException(status_code=404, detail=analysis_result["error"])
-
-        # Format for client
-        client_report = report_service.format_analysis_for_client(analysis_result)
-
-        return client_report
+        service = FinancialAnalysisService()
+        report = await service.generate_report(customer_id)
+        
+        if "error" in report:
+            raise HTTPException(status_code=404, detail=report["error"])
+        
+        return report
     except HTTPException:
         raise
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generating report: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error generating report: {str(e)}")
 
 
 @router.get("/customers/{customer_id}/scenarios/{scenario_type}")
-async def get_scenario_analysis(
-    customer_id: str, scenario_type: str, db: Session = Depends(get_db)
-):
+async def get_scenario_analysis(customer_id: str, scenario_type: str):
     """Get analysis for a specific scenario type."""
-    try:
-        if scenario_type not in ["minimum", "optimized", "consolidation"]:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid scenario type. Must be: minimum, optimized, or consolidation",
-            )
-
-        analysis_service = FinancialAnalysisService(db)
-        customer_info = analysis_service._get_customer_info(customer_id)
-
-        if not customer_info:
-            raise HTTPException(
-                status_code=404, detail=f"Customer {customer_id} not found"
-            )
-
-        # Calculate specific scenario
-        if scenario_type == "minimum":
-            scenario = (
-                analysis_service.debt_calculator.calculate_minimum_payment_scenario(
-                    customer_id
-                )
-            )
-        elif scenario_type == "optimized":
-            scenario = analysis_service.debt_calculator.calculate_optimized_scenario(
-                customer_id
-            )
-        elif scenario_type == "consolidation":
-            scenario = (
-                analysis_service.debt_calculator.calculate_consolidation_scenario(
-                    customer_id
-                )
-            )
-
-        scenario_dict = analysis_service._scenario_to_dict(scenario)
-
-        # Get individual agent analysis
-        from app.agents.parallel_executor import ParallelAgentExecutor
-
-        executor = ParallelAgentExecutor()
-
-        agent_analysis = await executor.execute_individual_analysis(
-            scenario_type, scenario_dict, customer_info
+    
+    if scenario_type not in ["minimum", "optimized", "consolidation"]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scenario type. Must be one of: minimum, optimized, consolidation"
         )
-
+    
+    try:
+        service = FinancialAnalysisService()
+        scenario = service.get_scenario_analysis(customer_id, scenario_type)
+        
+        if not scenario:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not generate {scenario_type} scenario for customer {customer_id}"
+            )
+        
         return {
             "customer_id": customer_id,
             "scenario_type": scenario_type,
-            "scenario_data": scenario_dict,
-            "agent_analysis": agent_analysis,
+            "scenario": scenario,
+            "generated_at": datetime.utcnow().isoformat()
         }
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error analyzing scenario: {str(e)}"
+            status_code=500,
+            detail=f"Error calculating scenario: {str(e)}"
         )
 
 
 @router.get("/offers")
-async def get_consolidation_offers(db: Session = Depends(get_db)):
+async def get_consolidation_offers():
     """Get available consolidation offers."""
     try:
-        from app.models import BankOffer
-
-        offers = db.query(BankOffer).all()
-        offer_list = [
-            {
-                "offer_id": offer.id,
-                "product_types_eligible": offer.product_types_eligible,
-                "max_consolidated_balance": offer.max_consolidated_balance,
-                "new_rate_pct": offer.new_rate_pct,
-                "max_term_months": offer.max_term_months,
-                "conditions": offer.conditions,
-            }
-            for offer in offers
-        ]
-
-        return {"offers": offer_list, "total_count": len(offer_list)}
+        supabase = get_supabase()
+        response = supabase.table('bank_offers').select('*').execute()
+        offers = response.data if response.data else []
+        
+        return {
+            "offers": offers,
+            "total": len(offers)
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching offers: {str(e)}")
 
 
 @router.get("/analytics/summary")
-async def get_analytics_summary(db: Session = Depends(get_db)):
+async def get_analytics_summary():
     """Get analytics summary of all customers and scenarios."""
     try:
-        from app.models import Customer, Loan, Card
-
-        # Basic counts
-        total_customers = db.query(Customer).count()
-        total_loans = db.query(Loan).count()
-        total_cards = db.query(Card).count()
-
-        # Calculate some basic metrics
-        loans = db.query(Loan).all()
-        cards = db.query(Card).all()
-
-        total_loan_balance = sum(loan.principal for loan in loans)
-        total_card_balance = sum(card.balance for card in cards)
-
-        avg_loan_rate = (
-            sum(loan.annual_rate_pct for loan in loans) / len(loans) if loans else 0
-        )
-        avg_card_rate = (
-            sum(card.annual_rate_pct for card in cards) / len(cards) if cards else 0
-        )
-
-        customers_with_past_due = len(
-            set(
-                [loan.customer_id for loan in loans if loan.days_past_due > 0]
-                + [card.customer_id for card in cards if card.days_past_due > 0]
-            )
-        )
-
+        supabase = get_supabase()
+        
+        # Get all customers
+        customers_response = supabase.table('customers').select('*').execute()
+        customers = customers_response.data if customers_response.data else []
+        
+        # Get all loans
+        loans_response = supabase.table('loans').select('*').execute()
+        loans = loans_response.data if loans_response.data else []
+        
+        # Get all cards
+        cards_response = supabase.table('cards').select('*').execute()
+        cards = cards_response.data if cards_response.data else []
+        
+        # Calculate summary statistics
+        total_debt_balance = sum(loan['principal'] for loan in loans) + sum(card['balance'] for card in cards)
+        
+        past_due_loans = [l for l in loans if l['days_past_due'] > 0]
+        past_due_cards = [c for c in cards if c['days_past_due'] > 0]
+        
+        avg_loan_rate = sum(l['annual_rate_pct'] for l in loans) / len(loans) if loans else 0
+        avg_card_rate = sum(c['annual_rate_pct'] for c in cards) / len(cards) if cards else 0
+        
         return {
-            "total_customers": total_customers,
-            "total_loans": total_loans,
-            "total_cards": total_cards,
-            "total_debt_balance": total_loan_balance + total_card_balance,
-            "average_loan_rate": round(avg_loan_rate, 2),
-            "average_card_rate": round(avg_card_rate, 2),
-            "customers_with_past_due": customers_with_past_due,
-            "past_due_rate": round(customers_with_past_due / total_customers * 100, 2)
-            if total_customers > 0
-            else 0,
+            "summary": {
+                "total_customers": len(customers),
+                "total_loans": len(loans),
+                "total_cards": len(cards),
+                "total_debt_balance": total_debt_balance,
+                "loans_past_due": len(past_due_loans),
+                "cards_past_due": len(past_due_cards),
+                "average_loan_rate": avg_loan_rate,
+                "average_card_rate": avg_card_rate,
+            },
+            "generated_at": datetime.utcnow().isoformat()
         }
     except Exception as e:
-        raise HTTPException(
-            status_code=500, detail=f"Error generating analytics: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error generating analytics: {str(e)}")
+
+
+@router.post("/customers/{customer_id}/consolidation-eligibility")
+async def check_consolidation_eligibility(customer_id: str):
+    """Check customer eligibility for consolidation offers."""
+    try:
+        from app.agents.eligibility_agent import EligibilityAgent
+        
+        supabase = get_supabase()
+        service = FinancialAnalysisService()
+        
+        # Get customer info
+        customer_info = service._get_customer_info(customer_id)
+        if not customer_info:
+            raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
+        
+        # Get all offers
+        offers_response = supabase.table('bank_offers').select('*').execute()
+        offers = offers_response.data if offers_response.data else []
+        
+        # Evaluate eligibility
+        agent = EligibilityAgent()
+        eligible_offers = await agent.evaluate_eligibility(customer_info, offers)
+        
+        return {
+            "customer_id": customer_id,
+            "total_offers": len(offers),
+            "eligible_offers": eligible_offers,
+            "eligibility_summary": {
+                "is_eligible": len(eligible_offers) > 0,
+                "best_offer": eligible_offers[0] if eligible_offers else None,
+                "evaluation_criteria": {
+                    "credit_score": customer_info.get("credit_score"),
+                    "has_past_due": customer_info.get("has_past_due"),
+                    "debt_to_income_ratio": customer_info.get("debt_to_income_ratio")
+                }
+            }
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error checking eligibility: {str(e)}")
 
 
 @router.post("/customers/{customer_id}/intelligent-consolidation-analysis")
-async def intelligent_consolidation_analysis(
-    customer_id: str, db: Session = Depends(get_db)
-):
+async def intelligent_consolidation_analysis(customer_id: str):
     """Perform intelligent consolidation analysis using LLM-powered eligibility assessment."""
     try:
-        from app.services.enhanced_consolidation_service import (
-            EnhancedConsolidationService,
-        )
-
-        enhanced_service = EnhancedConsolidationService(db)
-        (
-            scenario,
-            eligibility_details,
-        ) = await enhanced_service.calculate_intelligent_consolidation_scenario(
-            customer_id
-        )
-
-        return {
-            "customer_id": customer_id,
-            "analysis_timestamp": datetime.utcnow().isoformat(),
-            "consolidation_scenario": {
-                "scenario_name": scenario.scenario_name,
-                "total_monthly_payment": scenario.total_monthly_payment,
-                "total_payoff_months": scenario.total_payoff_months,
-                "total_interest": scenario.total_interest,
-                "total_payments": scenario.total_payments,
-                "savings_vs_minimum": scenario.savings_vs_minimum,
-                "description": scenario.description,
-            },
-            "intelligent_eligibility_analysis": eligibility_details,
-            "analysis_type": "LLM-powered intelligent analysis",
-        }
+        from app.services.enhanced_consolidation_service import EnhancedConsolidationService
+        
+        service = EnhancedConsolidationService()
+        
+        # Perform comprehensive analysis
+        analysis_result = await service.analyze_consolidation_with_llm(customer_id)
+        
+        if analysis_result["status"] == "error":
+            raise HTTPException(status_code=404, detail=analysis_result["message"])
+        
+        return analysis_result
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error in intelligent analysis: {str(e)}"
+            status_code=500,
+            detail=f"Error in intelligent consolidation analysis: {str(e)}"
         )
 
 
 @router.get("/customers/{customer_id}/offers/{offer_id}/detailed-analysis")
-async def get_detailed_offer_analysis(
-    customer_id: str, offer_id: str, db: Session = Depends(get_db)
-):
+async def get_detailed_offer_analysis(customer_id: str, offer_id: str):
     """Get detailed LLM-powered analysis for a specific offer and customer."""
     try:
-        from app.services.enhanced_consolidation_service import (
-            EnhancedConsolidationService,
-        )
-
-        enhanced_service = EnhancedConsolidationService(db)
-        analysis = await enhanced_service.get_detailed_offer_analysis(
-            customer_id, offer_id
-        )
-
+        from app.agents.eligibility_agent import EligibilityAgent
+        
+        supabase = get_supabase()
+        service = FinancialAnalysisService()
+        
+        # Get customer info
+        customer_info = service._get_customer_info(customer_id)
+        if not customer_info:
+            raise HTTPException(status_code=404, detail=f"Customer {customer_id} not found")
+        
+        # Get specific offer
+        offer_response = supabase.table('bank_offers').select('*').eq('id', offer_id).single().execute()
+        if not offer_response.data:
+            raise HTTPException(status_code=404, detail=f"Offer {offer_id} not found")
+        
+        offer = offer_response.data
+        
+        # Get detailed analysis from LLM
+        agent = EligibilityAgent()
+        analysis = await agent.analyze_specific_offer(customer_info, offer)
+        
         return {
-            "analysis_timestamp": datetime.utcnow().isoformat(),
-            "detailed_analysis": analysis,
-            "analysis_type": "LLM-powered detailed offer analysis",
+            "customer_id": customer_id,
+            "offer_id": offer_id,
+            "analysis": analysis,
+            "generated_at": datetime.utcnow().isoformat()
         }
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error in detailed analysis: {str(e)}"
+            status_code=500,
+            detail=f"Error analyzing offer: {str(e)}"
         )
