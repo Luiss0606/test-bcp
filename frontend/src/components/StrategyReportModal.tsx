@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from './ui/card';
 import { Button } from './ui/button';
 import { Progress } from './ui/progress';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { 
   Calculator, 
   TrendingUp, 
@@ -32,6 +34,7 @@ interface StrategyReportModalProps {
   customerId: string;
   formatCurrency: (amount: number) => string;
   isRecommended?: boolean;
+  agentReport?: string;
 }
 
 export function StrategyReportModal({ 
@@ -41,7 +44,8 @@ export function StrategyReportModal({
   strategyData, 
   customerId,
   formatCurrency,
-  isRecommended = false
+  isRecommended = false,
+  agentReport
 }: StrategyReportModalProps) {
   const [detailedReport, setDetailedReport] = useState<string>('');
   const [isLoading, setIsLoading] = useState(false);
@@ -77,12 +81,20 @@ export function StrategyReportModal({
   const config = strategyConfig[strategy];
   const IconComponent = config.icon;
 
-  // Fetch detailed report when modal opens
+  // Use agent report if available, otherwise fetch from API
   useEffect(() => {
-    if (isOpen && customerId) {
-      fetchDetailedReport();
+    if (isOpen) {
+      if (agentReport) {
+        // Use the pre-generated agent report
+        setDetailedReport(agentReport);
+        setIsLoading(false);
+        setError('');
+      } else if (customerId) {
+        // Fallback to fetching from API
+        fetchDetailedReport();
+      }
     }
-  }, [isOpen, customerId, strategy]);
+  }, [isOpen, customerId, strategy, agentReport]);
 
   const fetchDetailedReport = async () => {
     setIsLoading(true);
@@ -272,9 +284,31 @@ ${strategy === 'minimum' ?
               </div>
             ) : (
               <div className="bg-muted/50 p-4 rounded-lg">
-                <pre className="whitespace-pre-wrap text-sm leading-relaxed font-mono">
-                  {detailedReport}
-                </pre>
+                <div className="prose prose-sm max-w-none text-sm leading-relaxed">
+                  <ReactMarkdown 
+                    remarkPlugins={[remarkGfm]}
+                    components={{
+                      h1: ({children}) => <h1 className="text-xl font-bold mb-4 text-primary">{children}</h1>,
+                      h2: ({children}) => <h2 className="text-lg font-semibold mb-3 text-primary">{children}</h2>,
+                      h3: ({children}) => <h3 className="text-base font-semibold mb-2 text-primary">{children}</h3>,
+                      h4: ({children}) => <h4 className="text-sm font-semibold mb-2 text-primary">{children}</h4>,
+                      p: ({children}) => <p className="mb-3 text-sm leading-relaxed">{children}</p>,
+                      ul: ({children}) => <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>,
+                      li: ({children}) => <li className="text-sm leading-relaxed">{children}</li>,
+                      strong: ({children}) => <strong className="font-semibold text-primary">{children}</strong>,
+                      em: ({children}) => <em className="italic">{children}</em>,
+                      code: ({children}) => <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                      pre: ({children}) => <pre className="bg-muted p-3 rounded-lg overflow-x-auto text-xs">{children}</pre>,
+                      blockquote: ({children}) => <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground">{children}</blockquote>,
+                      table: ({children}) => <table className="w-full border-collapse border border-muted text-xs">{children}</table>,
+                      th: ({children}) => <th className="border border-muted px-2 py-1 bg-muted font-semibold">{children}</th>,
+                      td: ({children}) => <td className="border border-muted px-2 py-1">{children}</td>,
+                    }}
+                  >
+                    {detailedReport}
+                  </ReactMarkdown>
+                </div>
               </div>
             )}
           </CardContent>

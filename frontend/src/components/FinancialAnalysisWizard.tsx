@@ -6,8 +6,12 @@ import { Label } from "@/components/ui/label";
 import { Stepper } from "@/components/ui/stepper";
 import { Progress } from "@/components/ui/progress";
 import { StrategyReportModal } from "./StrategyReportModal";
+import { PaymentComparisonChart } from "./PaymentComparisonChart";
 import { cn } from '@/lib/utils';
-import { ChevronRight, ChevronLeft, CheckCircle, AlertCircle, TrendingUp, Calculator, FileText, Sparkles, Eye } from 'lucide-react';
+import { ChevronRight, ChevronLeft, CheckCircle, AlertCircle, TrendingUp, Calculator, FileText, Sparkles, Eye, Crown, Download } from 'lucide-react';
+import jsPDF from 'jspdf';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 
 interface CustomerProfile {
   customer_profile: any;
@@ -31,6 +35,14 @@ interface AnalysisResult {
     consolidation: any;
   };
   ai_analysis: any;
+  individual_analyses?: {
+    minimum_analysis?: string;
+    optimized_analysis?: string;
+    consolidation_analysis?: string;
+  };
+  consolidated_report?: string;
+  recommendations?: string[];
+  summary_metrics?: any;
 }
 
 const steps = [
@@ -120,7 +132,7 @@ export function FinancialAnalysisWizard() {
           clearInterval(progressInterval);
           return prev;
         }
-        return prev + Math.random() * 8;
+        return prev + Math.random() * 3;
       });
     }, 500);
     
@@ -172,6 +184,51 @@ export function FinancialAnalysisWizard() {
   const closeModal = () => {
     setIsModalOpen(false);
     setSelectedStrategy(null);
+  };
+
+  const generatePDF = () => {
+    if (!analysisResult) return;
+
+    const pdf = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4'
+    });
+
+    // Add title
+    pdf.setFontSize(20);
+    pdf.text('Informe de Reestructuración Financiera', 20, 20);
+    
+    // Add customer info
+    pdf.setFontSize(12);
+    pdf.text(`Cliente: ${customerId}`, 20, 35);
+    pdf.text(`Fecha: ${new Date().toLocaleDateString('es-MX')}`, 20, 42);
+    
+    // Add a line separator
+    pdf.line(20, 48, 190, 48);
+    
+    // Add consolidated report content
+    const report = analysisResult.consolidated_report || analysisResult.ai_analysis || 'No hay informe disponible';
+    
+    // Split text into lines that fit the page width
+    const lines = pdf.splitTextToSize(report, 170);
+    
+    let yPosition = 55;
+    const pageHeight = pdf.internal.pageSize.height;
+    const lineHeight = 5;
+    
+    // Add text with page breaks
+    lines.forEach((line: string) => {
+      if (yPosition + lineHeight > pageHeight - 20) {
+        pdf.addPage();
+        yPosition = 20;
+      }
+      pdf.text(line, 20, yPosition);
+      yPosition += lineHeight;
+    });
+    
+    // Save the PDF
+    pdf.save(`informe-financiero-${customerId}-${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const renderStepContent = () => {
@@ -494,30 +551,78 @@ export function FinancialAnalysisWizard() {
                 </div>
               )}
 
-              {/* AI Analysis */}
-              {analysisResult.ai_analysis && (
-                <Card className="shadow-xl">
-                  <CardHeader>
-                    <CardTitle className="flex items-center text-xl">
-                      <Sparkles className="w-6 h-6 mr-2 text-primary" />
-                      Tus Recomendaciones Personalizadas
-                    </CardTitle>
-                    <CardDescription>
-                      Análisis generado por inteligencia artificial específicamente para tu situación
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="p-6">
-                    <div className="bg-muted/50 p-6 rounded-lg">
-                      <pre className="whitespace-pre-wrap text-sm leading-relaxed">
-                        {typeof analysisResult.ai_analysis === 'string' 
-                          ? analysisResult.ai_analysis 
-                          : JSON.stringify(analysisResult.ai_analysis, null, 2)
-                        }
-                      </pre>
+              {/* Master Report Section with Download */}
+              <Card className="shadow-xl">
+                <CardHeader>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <CardTitle className="flex items-center text-xl">
+                        <Crown className="w-6 h-6 mr-2 text-primary" />
+                        Informe Integral de Reestructuración
+                      </CardTitle>
+                      <CardDescription>
+                        Análisis completo generado por el Director de Estrategia Financiera
+                      </CardDescription>
                     </div>
-                  </CardContent>
-                </Card>
-              )}
+                    <Button 
+                      onClick={generatePDF}
+                      className="bg-primary hover:bg-primary/90"
+                    >
+                      <Download className="w-4 h-4 mr-2" />
+                      Descargar PDF
+                    </Button>
+                  </div>
+                </CardHeader>
+                <CardContent className="p-6">
+                  <div className="bg-muted/30 rounded-lg p-6 max-h-[400px] overflow-y-auto">
+                    <div className="prose prose-sm max-w-none text-sm leading-relaxed">
+                      <ReactMarkdown 
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          h1: ({children}) => <h1 className="text-xl font-bold mb-4 text-primary">{children}</h1>,
+                          h2: ({children}) => <h2 className="text-lg font-semibold mb-3 text-primary">{children}</h2>,
+                          h3: ({children}) => <h3 className="text-base font-semibold mb-2 text-primary">{children}</h3>,
+                          h4: ({children}) => <h4 className="text-sm font-semibold mb-2 text-primary">{children}</h4>,
+                          p: ({children}) => <p className="mb-3 text-sm leading-relaxed">{children}</p>,
+                          ul: ({children}) => <ul className="list-disc list-inside mb-3 space-y-1">{children}</ul>,
+                          ol: ({children}) => <ol className="list-decimal list-inside mb-3 space-y-1">{children}</ol>,
+                          li: ({children}) => <li className="text-sm leading-relaxed">{children}</li>,
+                          strong: ({children}) => <strong className="font-semibold text-primary">{children}</strong>,
+                          em: ({children}) => <em className="italic">{children}</em>,
+                          code: ({children}) => <code className="bg-muted px-1 py-0.5 rounded text-xs font-mono">{children}</code>,
+                          pre: ({children}) => <pre className="bg-muted p-3 rounded-lg overflow-x-auto text-xs">{children}</pre>,
+                          blockquote: ({children}) => <blockquote className="border-l-4 border-primary pl-4 italic text-muted-foreground">{children}</blockquote>,
+                          table: ({children}) => <table className="w-full border-collapse border border-muted text-xs">{children}</table>,
+                          th: ({children}) => <th className="border border-muted px-2 py-1 bg-muted font-semibold">{children}</th>,
+                          td: ({children}) => <td className="border border-muted px-2 py-1">{children}</td>,
+                        }}
+                      >
+                        {analysisResult.consolidated_report || 
+                         analysisResult.ai_analysis || 
+                         'Generando informe integral...'}
+                      </ReactMarkdown>
+                    </div>
+                  </div>
+                  
+                  {/* Recommendations Section */}
+                  {analysisResult.recommendations && analysisResult.recommendations.length > 0 && (
+                    <div className="mt-6 p-4 bg-primary/5 rounded-lg border border-primary/20">
+                      <h4 className="font-semibold text-primary mb-3 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Recomendaciones Clave
+                      </h4>
+                      <ul className="space-y-2">
+                        {analysisResult.recommendations.map((rec, index) => (
+                          <li key={index} className="flex items-start gap-2">
+                            <CheckCircle className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                            <span className="text-sm">{rec}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
 
               {/* Scenarios */}
               {analysisResult.scenarios && (
@@ -652,7 +757,7 @@ export function FinancialAnalysisWizard() {
                                     }}
                                   >
                                     <Eye className="w-4 h-4 mr-2" />
-                                    Ver Análisis Detallado
+                                    Ver Planificación Completa
                                   </Button>
                                 </div>
                               </CardContent>
@@ -721,6 +826,14 @@ export function FinancialAnalysisWizard() {
                 </Card>
               )}
 
+              {/* Payment Comparison Chart */}
+              {analysisResult.scenarios && (
+                <PaymentComparisonChart
+                  scenarios={analysisResult.scenarios}
+                  formatCurrency={formatCurrency}
+                />
+              )}
+
               <div className="flex justify-center pt-6">
                 <Button 
                   onClick={() => goToStep(1)}
@@ -783,6 +896,18 @@ export function FinancialAnalysisWizard() {
             strategyData={analysisResult.scenarios[selectedStrategy]}
             customerId={customerId}
             formatCurrency={formatCurrency}
+            agentReport={(() => {
+              // Get the corresponding agent report
+              if (analysisResult.individual_analyses) {
+                const reportMap = {
+                  'minimum': analysisResult.individual_analyses.minimum_analysis,
+                  'optimized': analysisResult.individual_analyses.optimized_analysis,
+                  'consolidation': analysisResult.individual_analyses.consolidation_analysis
+                };
+                return reportMap[selectedStrategy];
+              }
+              return undefined;
+            })()}
             isRecommended={(() => {
               // Determine if this strategy is recommended
               let bestScenario = '';
