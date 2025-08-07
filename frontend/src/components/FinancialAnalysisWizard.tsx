@@ -5,8 +5,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Stepper } from "@/components/ui/stepper";
 import { Progress } from "@/components/ui/progress";
+import { StrategyReportModal } from "./StrategyReportModal";
 import { cn } from '@/lib/utils';
-import { ChevronRight, ChevronLeft, CheckCircle, AlertCircle, TrendingUp, Calculator, FileText, Sparkles } from 'lucide-react';
+import { ChevronRight, ChevronLeft, CheckCircle, AlertCircle, TrendingUp, Calculator, FileText, Sparkles, Eye } from 'lucide-react';
 
 interface CustomerProfile {
   customer_profile: any;
@@ -64,6 +65,8 @@ export function FinancialAnalysisWizard() {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [error, setError] = useState<string>('');
   const [analysisProgress, setAnalysisProgress] = useState(0);
+  const [selectedStrategy, setSelectedStrategy] = useState<'minimum' | 'optimized' | 'consolidation' | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('es-MX', {
@@ -115,9 +118,9 @@ export function FinancialAnalysisWizard() {
       setAnalysisProgress(prev => {
         if (prev >= 90) {
           clearInterval(progressInterval);
-          return 90;
+          return prev;
         }
-        return prev + Math.random() * 15;
+        return prev + Math.random() * 8;
       });
     }, 500);
     
@@ -159,6 +162,16 @@ export function FinancialAnalysisWizard() {
     } else if (step === 2 && customerProfile) {
       setCurrentStep(2);
     }
+  };
+
+  const handleStrategyClick = (strategy: 'minimum' | 'optimized' | 'consolidation') => {
+    setSelectedStrategy(strategy);
+    setIsModalOpen(true);
+  };
+
+  const closeModal = () => {
+    setIsModalOpen(false);
+    setSelectedStrategy(null);
   };
 
   const renderStepContent = () => {
@@ -520,55 +533,190 @@ export function FinancialAnalysisWizard() {
                   </CardHeader>
                   <CardContent className="p-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {Object.entries(analysisResult.scenarios).map(([scenario, data]: [string, any]) => {
-                        const scenarioConfig = {
-                          minimum: { 
-                            name: 'Pago Mínimo', 
-                            description: 'Pagando solo el mínimo requerido',
-                            color: 'border-orange-200 bg-orange-50'
-                          },
-                          optimized: { 
-                            name: 'Plan Optimizado', 
-                            description: 'Estrategia de pago acelerado',
-                            color: 'border-blue-200 bg-blue-50'
-                          },
-                          consolidation: { 
-                            name: 'Consolidación', 
-                            description: 'Unificando todas tus deudas',
-                            color: 'border-green-200 bg-green-50'
+                      {(() => {
+                        // Find the best scenario based on savings_vs_minimum
+                        let bestScenario = '';
+                        let maxSavings = 0;
+                        
+                        Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
+                          const savings = data.savings_vs_minimum || 0;
+                          if (savings > maxSavings) {
+                            maxSavings = savings;
+                            bestScenario = scenario;
                           }
+                        });
+
+                        return Object.entries(analysisResult.scenarios).map(([scenario, data]: [string, any]) => {
+                          const isRecommended = scenario === bestScenario && maxSavings > 0;
+                          const savings = data.savings_vs_minimum || 0;
+                          
+                          const scenarioConfig = {
+                            minimum: { 
+                              name: 'Pago Mínimo', 
+                              description: 'Pagando solo el mínimo requerido',
+                              color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-orange-200 bg-orange-50',
+                              textColor: isRecommended ? 'text-emerald-700' : 'text-orange-700'
+                            },
+                            optimized: { 
+                              name: 'Plan Optimizado', 
+                              description: 'Estrategia de pago acelerado',
+                              color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-blue-200 bg-blue-50',
+                              textColor: isRecommended ? 'text-emerald-700' : 'text-blue-700'
+                            },
+                            consolidation: { 
+                              name: 'Consolidación', 
+                              description: 'Unificando todas tus deudas',
+                              color: isRecommended ? 'border-emerald-400 bg-emerald-50' : 'border-green-200 bg-green-50',
+                              textColor: isRecommended ? 'text-emerald-700' : 'text-green-700'
+                            }
+                          };
+                          
+                          const config = scenarioConfig[scenario as keyof typeof scenarioConfig];
+                          
+                          return (
+                            <Card key={scenario} className={cn(
+                              "border-2 relative transition-all duration-300 group cursor-pointer hover:shadow-lg",
+                              config.color,
+                              isRecommended && "ring-2 ring-emerald-300 shadow-lg recommended-card"
+                            )}>
+                              {isRecommended && (
+                                <div className="absolute -top-3 left-1/2 recommended-badge">
+                                  <div className="bg-gradient-to-r from-emerald-500 to-green-500 text-white px-3 py-1 rounded-full text-xs font-bold flex items-center space-x-1 shadow-lg">
+                                    <CheckCircle className="w-3 h-3" />
+                                    <span>RECOMENDADO</span>
+                                  </div>
+                                </div>
+                              )}
+                              
+                              <CardHeader className="pb-3">
+                                <CardTitle className={cn("text-lg flex items-center justify-between", config.textColor)}>
+                                  {config.name}
+                                  {isRecommended && (
+                                    <div className="flex items-center text-emerald-600">
+                                      <Sparkles className="w-4 h-4" />
+                                    </div>
+                                  )}
+                                </CardTitle>
+                                <CardDescription className="text-sm">
+                                  {config.description}
+                                </CardDescription>
+                              </CardHeader>
+                              
+                              <CardContent className="space-y-3">
+                                <div className="space-y-2">
+                                  <div className="flex justify-between">
+                                    <span className="text-sm text-muted-foreground">Tiempo:</span>
+                                    <span className="font-medium">{data.total_payoff_months} meses</span>
+                                  </div>
+                                  <div className="flex justify-between">
+                                    <span className="text-sm text-muted-foreground">Interés Total:</span>
+                                    <span className="font-medium">{formatCurrency(data.total_interest)}</span>
+                                  </div>
+                                  {savings > 0 && (
+                                    <div className="flex justify-between">
+                                      <span className="text-sm text-muted-foreground">Ahorro vs Mínimo:</span>
+                                      <span className="font-medium text-emerald-600">
+                                        {formatCurrency(savings)}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex justify-between border-t pt-2">
+                                    <span className="text-sm font-medium">Pago Total:</span>
+                                    <span className="font-bold text-lg">{formatCurrency(data.total_payments)}</span>
+                                  </div>
+                                </div>
+                                
+                                {isRecommended && (
+                                  <div className="mt-4 p-3 bg-emerald-100 rounded-lg border border-emerald-200">
+                                    <div className="flex items-center space-x-2">
+                                      <TrendingUp className="w-4 h-4 text-emerald-600" />
+                                      <span className="text-sm font-medium text-emerald-700">
+                                        Mejor Opción Financiera
+                                      </span>
+                                    </div>
+                                    <p className="text-xs text-emerald-600 mt-1">
+                                      Esta opción te permite ahorrar más dinero en intereses
+                                    </p>
+                                  </div>
+                                )}
+
+                                {/* View Details Button */}
+                                <div className="pt-3 border-t">
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    className="w-full group-hover:bg-primary group-hover:text-primary-foreground transition-colors"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      handleStrategyClick(scenario as 'minimum' | 'optimized' | 'consolidation');
+                                    }}
+                                  >
+                                    <Eye className="w-4 h-4 mr-2" />
+                                    Ver Análisis Detallado
+                                  </Button>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          );
+                        });
+                      })()}
+                    </div>
+                    
+                    {(() => {
+                      // Show recommendation summary
+                      let bestScenario = '';
+                      let maxSavings = 0;
+                      
+                      Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
+                        const savings = data.savings_vs_minimum || 0;
+                        if (savings > maxSavings) {
+                          maxSavings = savings;
+                          bestScenario = scenario;
+                        }
+                      });
+
+                      if (bestScenario && maxSavings > 0) {
+                        const scenarioNames = {
+                          minimum: 'Pago Mínimo',
+                          optimized: 'Plan Optimizado',
+                          consolidation: 'Consolidación'
                         };
                         
-                        const config = scenarioConfig[scenario as keyof typeof scenarioConfig];
-                        
                         return (
-                          <Card key={scenario} className={cn("border-2", config.color)}>
-                            <CardHeader className="pb-3">
-                              <CardTitle className="text-lg">{config.name}</CardTitle>
-                              <CardDescription className="text-sm">
-                                {config.description}
-                              </CardDescription>
-                            </CardHeader>
-                            <CardContent className="space-y-3">
-                              <div className="space-y-2">
-                                <div className="flex justify-between">
-                                  <span className="text-sm text-muted-foreground">Tiempo:</span>
-                                  <span className="font-medium">{data.total_months} meses</span>
-                                </div>
-                                <div className="flex justify-between">
-                                  <span className="text-sm text-muted-foreground">Interés Total:</span>
-                                  <span className="font-medium">{formatCurrency(data.total_interest)}</span>
-                                </div>
-                                <div className="flex justify-between border-t pt-2">
-                                  <span className="text-sm font-medium">Pago Total:</span>
-                                  <span className="font-bold text-lg">{formatCurrency(data.total_payment)}</span>
+                          <div className="mt-8 p-6 bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-50 rounded-xl border-2 border-emerald-200 shadow-lg">
+                            <div className="flex items-start space-x-4">
+                              <div className="flex-shrink-0">
+                                <div className="w-12 h-12 bg-emerald-500 rounded-full flex items-center justify-center shadow-md">
+                                  <CheckCircle className="w-7 h-7 text-white" />
                                 </div>
                               </div>
-                            </CardContent>
-                          </Card>
+                              <div className="flex-1">
+                                <div className="flex items-center space-x-2 mb-2">
+                                  <h4 className="text-xl font-bold text-emerald-800">
+                                    💡 Nuestra Recomendación
+                                  </h4>
+                                  <Sparkles className="w-5 h-5 text-emerald-600" />
+                                </div>
+                                <div className="bg-white p-4 rounded-lg shadow-sm border border-emerald-100">
+                                  <p className="text-emerald-700 leading-relaxed">
+                                    <strong className="text-lg text-emerald-800">
+                                      {scenarioNames[bestScenario as keyof typeof scenarioNames]}
+                                    </strong> es tu mejor opción financiera.
+                                  </p>
+                                  <div className="mt-3 flex items-center space-x-2">
+                                    <TrendingUp className="w-5 h-5 text-emerald-600" />
+                                    <p className="text-sm text-emerald-600">
+                                      <strong>Ahorro estimado: {formatCurrency(maxSavings)}</strong> en intereses comparado con pagar solo el mínimo.
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
                         );
-                      })}
-                    </div>
+                      }
+                      return null;
+                    })()}
                   </CardContent>
                 </Card>
               )}
@@ -625,6 +773,33 @@ export function FinancialAnalysisWizard() {
         <div className="max-w-6xl mx-auto">
           {renderStepContent()}
         </div>
+
+        {/* Strategy Report Modal */}
+        {selectedStrategy && analysisResult && (
+          <StrategyReportModal
+            isOpen={isModalOpen}
+            onClose={closeModal}
+            strategy={selectedStrategy}
+            strategyData={analysisResult.scenarios[selectedStrategy]}
+            customerId={customerId}
+            formatCurrency={formatCurrency}
+            isRecommended={(() => {
+              // Determine if this strategy is recommended
+              let bestScenario = '';
+              let maxSavings = 0;
+              
+              Object.entries(analysisResult.scenarios).forEach(([scenario, data]: [string, any]) => {
+                const savings = data.savings_vs_minimum || 0;
+                if (savings > maxSavings) {
+                  maxSavings = savings;
+                  bestScenario = scenario;
+                }
+              });
+              
+              return selectedStrategy === bestScenario && maxSavings > 0;
+            })()}
+          />
+        )}
       </div>
     </div>
   );
