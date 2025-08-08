@@ -17,6 +17,7 @@ import {
   BarChart3,
   Sparkles
 } from 'lucide-react';
+import { apiFetch } from '@/lib/api';
 
 interface StrategyData {
   total_payoff_months: number;
@@ -101,8 +102,8 @@ export function StrategyReportModal({
     setError('');
     
     try {
-      const response = await fetch(
-        `http://localhost:8000/api/v1/customers/${customerId}/scenarios/${strategy}`
+      const response = await apiFetch(
+        `/api/v1/customers/${customerId}/scenarios/${strategy}`
       );
       
       if (response.ok) {

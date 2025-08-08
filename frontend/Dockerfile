@@ -18,12 +18,15 @@ RUN cd /temp/prod && bun install --frozen-lockfile --production
 # Copy node_modules from temp directory
 # then copy all (non-ignored) project files into the image
 FROM base AS prerelease
+ARG VITE_API_URL
 COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 
 # Build the application
 ENV NODE_ENV=production
-RUN bun run build
+# Pass VITE_ variables to the build-time env
+ENV VITE_API_URL=${VITE_API_URL}
+RUN echo "Building with VITE_API_URL=${VITE_API_URL}" && bun run build
 
 # Copy production dependencies and built app into final image
 FROM nginx:alpine AS release

@@ -12,6 +12,7 @@ import { ChevronRight, ChevronLeft, CheckCircle, AlertCircle, TrendingUp, Calcul
 import jsPDF from 'jspdf';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { apiFetch } from '@/lib/api';
 
 interface CustomerProfile {
   customer_profile: any;
@@ -91,7 +92,7 @@ export function FinancialAnalysisWizard() {
     setIsLoadingProfile(true);
     setError('');
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/customers/${clientId}/profile`);
+      const response = await apiFetch(`/api/v1/customers/${clientId}/profile`);
       if (response.ok) {
         const data = await response.json();
         // Adapt backend response to UI contract
@@ -191,7 +192,7 @@ export function FinancialAnalysisWizard() {
     }, 500);
 
     try {
-      const response = await fetch(`http://localhost:8000/api/v1/customers/${customerId}/analyze`, {
+      const response = await apiFetch(`/api/v1/customers/${customerId}/analyze`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

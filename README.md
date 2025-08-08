@@ -213,6 +213,27 @@ uv run uvicorn app.main:app --reload
 | `LANGSMITH_TRACING` | Habilitar tracing con LangSmith | No | `false` |
 | `CORS_ORIGINS` | Orígenes CORS permitidos | No | `["http://localhost:3000", "http://localhost:5173"]` |
 
+### Variables de Entorno del Frontend
+
+Para que el frontend apunte al backend correcto en producción o staging, usa la variable `VITE_API_URL`.
+
+- Docker Compose (ya configurado): se pasa como build-arg `VITE_API_URL` al frontend.
+- Desarrollo local (frontend): crea `frontend/.env.local` con:
+
+```bash
+VITE_API_URL=http://localhost:8000
+```
+
+Si despliegas en Azure con dominios separados, por ejemplo:
+
+```bash
+VITE_API_URL=http://financial-backend-app.westus2.azurecontainer.io:8000
+```
+
+El frontend también detecta automáticamente, en ausencia de `VITE_API_URL`, el backend en:
+- Localhost: `http://localhost:8000`
+- Azure (por convención): reemplaza "frontend" por "backend" y usa puerto 8000
+
 ### Puertos Utilizados
 
 | Servicio | Puerto | Descripción |
