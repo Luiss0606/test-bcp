@@ -110,7 +110,8 @@ class EligibilityAgent:
         results = []
         
         for offer in offers:
-            offer_id = offer.get('offer_id', 'unknown')
+            # Accept both schemas: prefer 'offer_id', fallback to 'id'
+            offer_id = offer.get('offer_id') or offer.get('id') or 'unknown'
             conditions = offer.get('conditions', '')
             
             eligibility = await self.evaluate_eligibility(
@@ -131,7 +132,7 @@ class EligibilityAgent:
         
         input_text = f"""
 OFERTA BANCARIA A EVALUAR:
-ID: {offer_details.get('offer_id', 'N/A')}
+ID: {offer_details.get('offer_id') or offer_details.get('id', 'N/A')}
 Productos elegibles: {', '.join(offer_details.get('product_types_eligible', []))}
 Monto máximo consolidación: ${offer_details.get('max_consolidated_balance', 0):,.2f}
 Nueva tasa de interés: {offer_details.get('new_rate_pct', 0)}% anual

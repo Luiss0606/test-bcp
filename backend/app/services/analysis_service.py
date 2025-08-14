@@ -138,8 +138,9 @@ class FinancialAnalysisService:
                     for item in eligible_offers_data[:3]  # Top 3 offers
                 ]
                 
+                # Pass eligible offers using the correct keyword to avoid positional mistakes
                 scenario = self.debt_calculator.calculate_consolidation_scenario(
-                    customer_id, best_offers_info
+                    customer_id, eligible_offers_data=best_offers_info
                 )
                 
                 # Enhance description with intelligent analysis insights

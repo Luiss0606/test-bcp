@@ -71,9 +71,6 @@ load_env_vars() {
         echo "LANGSMITH_API_KEY=lsv2_pt_46f..."
         echo "LANGCHAIN_PROJECT=bcp-test"
         echo "LANGSMITH_ENDPOINT=https://api.smith.langchain.com"
-        echo "LANGCHAIN_TRACING_V2=true"
-        echo "LANGCHAIN_API_KEY=lsv2_pt_46f..."
-        echo "LANGCHAIN_ENDPOINT=https://api.smith.langchain.com"
         exit 1
     fi
     
@@ -175,7 +172,7 @@ deploy_containers() {
             SUPABASE_URL="$SUPABASE_URL" \
             SUPABASE_ANON_KEY="$SUPABASE_ANON_KEY" \
             OPENAI_API_KEY="$OPENAI_API_KEY" \
-            LOAD_SAMPLE_DATA="true" \
+            LOAD_SAMPLE_DATA="false" \
             LANGSMITH_TRACING="true" \
             LANGSMITH_API_KEY="$LANGSMITH_API_KEY" \
             LANGCHAIN_PROJECT="$LANGCHAIN_PROJECT" \
@@ -335,9 +332,6 @@ update_deployment() {
                 LANGSMITH_API_KEY="$LANGSMITH_API_KEY" \
                 LANGCHAIN_PROJECT="$LANGCHAIN_PROJECT" \
                 LANGSMITH_ENDPOINT="$LANGSMITH_ENDPOINT" \
-                LANGCHAIN_TRACING_V2="${LANGCHAIN_TRACING_V2:-true}" \
-                LANGCHAIN_API_KEY="$LANGCHAIN_API_KEY" \
-                LANGCHAIN_ENDPOINT="${LANGCHAIN_ENDPOINT:-https://api.smith.langchain.com}" \
                 DEBUG="false"
     }
     print_message "✓ Backend actualizado" "$GREEN"

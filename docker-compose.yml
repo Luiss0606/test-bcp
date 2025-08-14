@@ -11,7 +11,7 @@ services:
       - SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}
       - SUPABASE_KEY=${SUPABASE_ANON_KEY}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - LOAD_SAMPLE_DATA=true
+      - LOAD_SAMPLE_DATA=false
       - DEBUG=${DEBUG:-true}
     env_file:
       - .env
